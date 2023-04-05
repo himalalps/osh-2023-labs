@@ -59,9 +59,9 @@ int main() {
         }
 
         if (args[0] == "pwd") {
-            char *buf = new char[SIZE];
+            char *buf = new char[SIZE + 1];
             int size = SIZE;
-            while (getcwd(buf, SIZE) == nullptr) {
+            while (getcwd(buf, size) == nullptr) {
                 delete[] buf;
                 size += SIZE;
                 buf = new char[size];
