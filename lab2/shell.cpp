@@ -59,13 +59,28 @@ int main() {
         }
 
         if (args[0] == "pwd") {
-            char buf[SIZE + 1];
-            std::cout << getcwd(buf, SIZE) << std::endl;
+            char *buf = new char[SIZE];
+            int size = SIZE;
+            while (getcwd(buf, SIZE) == NULL) {
+                delete[] buf;
+                size += SIZE;
+                buf = new char[size];
+            }
+            std::cout << buf << std::endl;
+            delete[] buf;
             continue;
         }
 
         if (args[0] == "cd") {
-            std::cout << "To be done!\n";
+            std::string home = getenv("HOME");
+            if (args.size() > 2) {
+                std::cout << "cd: invalid argument number" << std::endl;
+            } else if (args.size() == 1) {
+                // TODO: tilde expansion
+            } else {
+                args.push_back(home);
+            }
+            chdir(args[1].c_str());
             continue;
         }
 
