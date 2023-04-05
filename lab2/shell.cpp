@@ -75,8 +75,10 @@ int main() {
             std::string home = getenv("HOME");
             if (args.size() > 2) {
                 std::cout << "cd: invalid argument number" << std::endl;
-            } else if (args.size() == 1) {
-                // TODO: tilde expansion
+            } else if (args.size() == 2) {
+                if (args[1].substr(0, 2) == "~/") {
+                    args[1].replace(0, 1, home);
+                }
             } else {
                 args.push_back(home);
             }
