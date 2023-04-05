@@ -61,7 +61,7 @@ int main() {
         if (args[0] == "pwd") {
             char *buf = new char[SIZE];
             int size = SIZE;
-            while (getcwd(buf, SIZE) == NULL) {
+            while (getcwd(buf, SIZE) == nullptr) {
                 delete[] buf;
                 size += SIZE;
                 buf = new char[size];
@@ -72,16 +72,27 @@ int main() {
         }
 
         if (args[0] == "cd") {
-            std::string home = getenv("HOME");
             if (args.size() > 2) {
                 std::cout << "cd: invalid argument number" << std::endl;
-            } else if (args.size() == 2) {
-                if (args[1].substr(0, 2) == "~/") {
-                    args[1].replace(0, 1, home);
-                }
-            } else {
-                args.push_back(home);
+                continue;
             }
+            char *buf = getenv("HOME");
+            if (args.size() == 1) {
+                if (buf == nullptr) {
+                    std::cout << "cd: HOME not set" << std::endl;
+                    continue;
+                } else {
+                    args.push_back(std::string(buf));
+                }
+            } else if (args[1].substr(0, 2) == "~/" || args[1] == "~") {
+                if (buf == nullptr) {
+                    std::cout << "cd: HOME not set" << std::endl;
+                    continue;
+                } else {
+                    args[1].replace(0, 1, std::string(buf));
+                }
+            }
+
             chdir(args[1].c_str());
             continue;
         }
