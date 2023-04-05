@@ -13,6 +13,8 @@
 // wait
 #include <sys/wait.h>
 
+#define SIZE 100
+
 std::vector<std::string> split(std::string s, const std::string &delimiter);
 
 int main() {
@@ -57,7 +59,8 @@ int main() {
         }
 
         if (args[0] == "pwd") {
-            std::cout << "To be done!\n";
+            char buf[SIZE + 1];
+            std::cout << getcwd(buf, SIZE) << std::endl;
             continue;
         }
 
