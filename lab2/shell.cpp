@@ -12,6 +12,8 @@
 #include <unistd.h>
 // wait
 #include <sys/wait.h>
+// 用于获取用户
+#include <pwd.h>
 
 #define SIZE 100
 
@@ -23,6 +25,13 @@ int main() {
 
     // 用来存储读入的一行命令
     std::string cmd;
+
+    // 用于替换路径中的'~'
+    char *home = getenv("HOME");
+    if (home == nullptr) {
+        home = getpwuid(getuid())->pw_dir;
+    }
+
     while (true) {
         // 打印提示符
         std::cout << "# ";
@@ -58,6 +67,7 @@ int main() {
             return code;
         }
 
+        // 处理pwd命令
         if (args[0] == "pwd") {
             char *buf = new char[SIZE + 1];
             int size = SIZE;
@@ -71,28 +81,17 @@ int main() {
             continue;
         }
 
+        // 处理cd命令
         if (args[0] == "cd") {
             if (args.size() > 2) {
                 std::cout << "cd: invalid argument number" << std::endl;
                 continue;
             }
-            char *buf = getenv("HOME");
             if (args.size() == 1) {
-                if (buf == nullptr) {
-                    std::cout << "cd: HOME not set" << std::endl;
-                    continue;
-                } else {
-                    args.push_back(std::string(buf));
-                }
+                args.push_back(std::string(home));
             } else if (args[1].substr(0, 2) == "~/" || args[1] == "~") {
-                if (buf == nullptr) {
-                    std::cout << "cd: HOME not set" << std::endl;
-                    continue;
-                } else {
-                    args[1].replace(0, 1, std::string(buf));
-                }
+                args[1].replace(0, 1, std::string(home));
             }
-
             chdir(args[1].c_str());
             continue;
         }
@@ -103,6 +102,9 @@ int main() {
         // std::vector<std::string> 转 char **
         char *arg_ptrs[args.size() + 1];
         for (auto i = 0; i < args.size(); i++) {
+            if (args[i].substr(0, 2) == "~/" || args[i] == "~") {
+                args[i].replace(0, 1, std::string(home));
+            }
             arg_ptrs[i] = &args[i][0];
         }
         // exec p 系列的 argv 需要以 nullptr 结尾
