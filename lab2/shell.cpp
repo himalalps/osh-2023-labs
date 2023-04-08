@@ -15,6 +15,9 @@
 // 用于获取用户
 #include <pwd.h>
 
+#define READ_END 0
+#define WRITE_END 1
+
 std::vector<std::string> split(std::string s, const std::string &delimiter);
 void trim(std::string &line);
 void format(std::string &line);
@@ -113,16 +116,16 @@ int main() {
                 } else if (cpid == 0) {
                     // 输出重定向
                     if (i == 0) { // 第一个子进程输入来自标准输入
-                        dup2(pipefd[i][1], STDOUT_FILENO);
-                        close(pipefd[i][1]);
+                        dup2(pipefd[i][WRITE_END], STDOUT_FILENO);
+                        close(pipefd[i][WRITE_END]);
                     } else if (i == pipe_num) { // 最后一个子进程输出到标准输出
-                        dup2(pipefd[i - 1][0], STDIN_FILENO);
-                        close(pipefd[i - 1][0]);
+                        dup2(pipefd[i - 1][READ_END], STDIN_FILENO);
+                        close(pipefd[i - 1][READ_END]);
                     } else { // 其余进程输入输出都是管道
-                        dup2(pipefd[i - 1][0], STDIN_FILENO);
-                        dup2(pipefd[i][1], STDOUT_FILENO);
-                        close(pipefd[i - 1][0]);
-                        close(pipefd[i][1]);
+                        dup2(pipefd[i - 1][READ_END], STDIN_FILENO);
+                        dup2(pipefd[i][WRITE_END], STDOUT_FILENO);
+                        close(pipefd[i - 1][READ_END]);
+                        close(pipefd[i][WRITE_END]);
                     }
 
                     execvp(args[poses[i]].c_str(), &arg_ptrs[poses[i]]);
