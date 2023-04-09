@@ -117,21 +117,28 @@ int main() {
                     // 输出重定向
                     if (i == 0) { // 第一个子进程输入来自标准输入
                         dup2(pipefd[i][WRITE_END], STDOUT_FILENO);
-                        close(pipefd[i][WRITE_END]);
                     } else if (i == pipe_num) { // 最后一个子进程输出到标准输出
                         dup2(pipefd[i - 1][READ_END], STDIN_FILENO);
-                        close(pipefd[i - 1][READ_END]);
                     } else { // 其余进程输入输出都是管道
                         dup2(pipefd[i - 1][READ_END], STDIN_FILENO);
                         dup2(pipefd[i][WRITE_END], STDOUT_FILENO);
-                        close(pipefd[i - 1][READ_END]);
-                        close(pipefd[i][WRITE_END]);
                     }
 
                     execvp(args[poses[i]].c_str(), &arg_ptrs[poses[i]]);
                     exit(255);
                 }
+                if (i == 0) { // 第一个进程关闭原本的标准输出
+                    close(pipefd[i][WRITE_END]);
+                } else if (i == pipe_num) { // 最后一共进程关闭原本的标准输入
+                    close(pipefd[i - 1][READ_END]);
+                } else { // 其余进程关闭原本的标准输入和输出
+                    close(pipefd[i - 1][READ_END]);
+                    close(pipefd[i][WRITE_END]);
+                }
             }
+            // 等待所有子进程结束
+            while (wait(nullptr) > 0)
+                ;
         } else {
             // 不存在管道
             pid_t pid = fork();
@@ -147,12 +154,11 @@ int main() {
                 // 所以这里直接报错
                 exit(255);
             }
-        }
-
-        // 这里只有父进程（原进程）才会进入
-        int ret = wait(nullptr);
-        if (ret < 0) {
-            std::cout << "wait failed";
+            // 这里只有父进程（原进程）才会进入
+            int ret = wait(nullptr);
+            if (ret < 0) {
+                std::cout << "wait failed";
+            }
         }
     }
 }
