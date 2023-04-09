@@ -82,6 +82,26 @@ int main() {
             continue;
         }
 
+        for (auto i = 0; i < args.size(); i++) {
+            if (args[i].substr(0, 1) == "$") { // 替换环境变量
+                size_t pos = args[i].find_first_of('/');
+                if (pos == std::string::npos) {
+                    args[i].replace(0, args[i].length(), getenv(&(args[i].substr(1, args[i].length() - 1)[0])));
+                } else {
+                    args[i].replace(0, pos, getenv(&(args[i].substr(1, pos - 1)[0])));
+                }
+            } else if (args[i].substr(0, 2) == "~/" || args[i] == "~") { // 替换 ~
+                args[i].replace(0, 1, std::string(home));
+            } else if (args[i].substr(0, 1) == "~") { // ~拓展
+                size_t pos = args[i].find_first_of('/');
+                if (pos == std::string::npos) {
+                    args[i].replace(0, args[i].length(), getpwnam(&(args[i].substr(1, args[i].length() - 1))[0])->pw_dir);
+                } else {
+                    args[i].replace(0, pos, getpwnam(&(args[i].substr(1, pos - 1))[0])->pw_dir);
+                }
+            }
+        }
+
         // 处理cd命令
         if (args[0] == "cd") {
             cd(args, home);
@@ -246,11 +266,6 @@ void cd(std::vector<std::string> &args, const char *home) {
 void preprocess(std::vector<int> &poses, std::vector<std::string> &args, char **arg_ptrs, int &pipe_num, const char *home) {
     poses.push_back(0);
     for (auto i = 0; i < args.size(); i++) {
-        if (args[i].substr(0, 1) == "$") { // 替换环境变量
-            args[i].replace(0, args[i].length(), getenv(&(args[i].substr(1, args[i].length() - 1)[0])));
-        } else if (args[i].substr(0, 2) == "~/" || args[i] == "~") { // 替换 ~
-            args[i].replace(0, 1, std::string(home));
-        }
         if (args[i] == "|") {
             pipe_num++;
             poses.push_back(i + 1);
