@@ -21,9 +21,10 @@
 std::vector<std::string> split(std::string s, const std::string &delimiter);
 void trim(std::string &line);
 void format(std::string &line);
+void extend(std::vector<std::string> &args, char *home);
 void pwd(const std::vector<std::string> &args);
 void cd(std::vector<std::string> &args, const char *home);
-void preprocess(std::vector<int> &poses, std::vector<std::string> &args, char **arg_ptrs, int &pipe_num, const char *home);
+void exec(std::string &cmd);
 
 int main() {
     // 不同步 iostream 和 cstdio 的 buffer
@@ -45,7 +46,7 @@ int main() {
         // 读入一行。std::getline 结果不包含换行符。
         std::getline(std::cin, cmd);
 
-        // 去除前后空格
+        // 命令格式化
         format(cmd);
 
         // 按空格分割命令为单词
@@ -82,25 +83,7 @@ int main() {
             continue;
         }
 
-        for (auto i = 0; i < args.size(); i++) {
-            if (args[i].substr(0, 1) == "$") { // 替换环境变量
-                size_t pos = args[i].find_first_of('/');
-                if (pos == std::string::npos) {
-                    args[i].replace(0, args[i].length(), getenv(&(args[i].substr(1, args[i].length() - 1)[0])));
-                } else {
-                    args[i].replace(0, pos, getenv(&(args[i].substr(1, pos - 1)[0])));
-                }
-            } else if (args[i].substr(0, 2) == "~/" || args[i] == "~") { // 替换 ~
-                args[i].replace(0, 1, std::string(home));
-            } else if (args[i].substr(0, 1) == "~") { // ~拓展
-                size_t pos = args[i].find_first_of('/');
-                if (pos == std::string::npos) {
-                    args[i].replace(0, args[i].length(), getpwnam(&(args[i].substr(1, args[i].length() - 1))[0])->pw_dir);
-                } else {
-                    args[i].replace(0, pos, getpwnam(&(args[i].substr(1, pos - 1))[0])->pw_dir);
-                }
-            }
-        }
+        extend(args, home);
 
         // 处理cd命令
         if (args[0] == "cd") {
@@ -108,15 +91,16 @@ int main() {
             continue;
         }
 
-        // std::vector<std::string> 转 char **
-        char *arg_ptrs[args.size() + 1];
+        // // std::vector<std::string> 转 char **
+        // char *arg_ptrs[args.size() + 1];
+
+        // 根据管道分割命令
+        std::vector<std::string> cmds = split(cmd, "|");
         // 管道数量
-        int pipe_num = 0;
-        // 管道对应位置
-        std::vector<int> poses;
+        int pipe_num = cmds.size() - 1;
 
         // 预处理
-        preprocess(poses, args, arg_ptrs, pipe_num, home);
+        // preprocess(poses, args, arg_ptrs, pipe_num, home);
 
         // 处理外部命令
         if (pipe_num > 0) {
@@ -144,8 +128,7 @@ int main() {
                         dup2(pipefd[i][WRITE_END], STDOUT_FILENO);
                     }
 
-                    execvp(args[poses[i]].c_str(), &arg_ptrs[poses[i]]);
-                    exit(255);
+                    exec(cmds[i]);
                 }
                 if (i == 0) { // 第一个进程关闭原本的标准输出
                     close(pipefd[i][WRITE_END]);
@@ -167,12 +150,7 @@ int main() {
                 std::cout << "fork failed" << std::endl;
             } else if (pid == 0) {
                 // 这里只有子进程才会进入
-                // execvp 会完全更换子进程接下来的代码，所以正常情况下 execvp 之后这里的代码就没意义了
-                // 如果 execvp 之后的代码被运行了，那就是 execvp 出问题了
-                execvp(args[0].c_str(), arg_ptrs);
-
-                // 所以这里直接报错
-                exit(255);
+                exec(cmds[0]);
             }
             // 这里只有父进程（原进程）才会进入
             int ret = wait(nullptr);
@@ -226,6 +204,30 @@ void format(std::string &line) {
         line.replace(pos, 2, " ");
     }
     trim(line);
+    return;
+}
+
+void extend(std::vector<std::string> &args, char *home) {
+    for (auto i = 0; i < args.size(); i++) {
+        if (args[i].substr(0, 1) == "$") { // 替换环境变量
+            size_t pos = args[i].find_first_of('/');
+            if (pos == std::string::npos) {
+                args[i].replace(0, args[i].length(), getenv(&(args[i].substr(1, args[i].length() - 1)[0])));
+            } else {
+                args[i].replace(0, pos, getenv(&(args[i].substr(1, pos - 1)[0])));
+            }
+        } else if (args[i].substr(0, 2) == "~/" || args[i] == "~") { // 替换 ~
+            args[i].replace(0, 1, std::string(home));
+        } else if (args[i].substr(0, 1) == "~") { // ~拓展
+            size_t pos = args[i].find_first_of('/');
+            if (pos == std::string::npos) {
+                args[i].replace(0, args[i].length(), getpwnam(&(args[i].substr(1, args[i].length() - 1))[0])->pw_dir);
+            } else {
+                args[i].replace(0, pos, getpwnam(&(args[i].substr(1, pos - 1))[0])->pw_dir);
+            }
+        }
+    }
+    return;
 }
 
 // pwd 命令
@@ -263,18 +265,20 @@ void cd(std::vector<std::string> &args, const char *home) {
     return;
 }
 
-void preprocess(std::vector<int> &poses, std::vector<std::string> &args, char **arg_ptrs, int &pipe_num, const char *home) {
-    poses.push_back(0);
+void exec(std::string &cmd) {
+    format(cmd);
+    std::vector<std::string> args = split(cmd, " ");
+    char *arg_ptrs[args.size() + 1];
     for (auto i = 0; i < args.size(); i++) {
-        if (args[i] == "|") {
-            pipe_num++;
-            poses.push_back(i + 1);
-            arg_ptrs[i] = nullptr;
-        } else {
-            arg_ptrs[i] = &args[i][0];
-        }
+        arg_ptrs[i] = &args[i][0];
     }
     // exec p 系列的 argv 需要以 nullptr 结尾
     arg_ptrs[args.size()] = nullptr;
-    return;
+
+    // execvp 会完全更换子进程接下来的代码，所以正常情况下 execvp 之后这里的代码就没意义了
+    // 如果 execvp 之后的代码被运行了，那就是 execvp 出问题了
+    execvp(args[0].c_str(), arg_ptrs);
+
+    // 所以这里直接报错
+    exit(255);
 }
