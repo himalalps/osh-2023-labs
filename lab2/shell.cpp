@@ -24,7 +24,7 @@ void format(std::string &line);
 void extend(std::vector<std::string> &args, char *home);
 void pwd(const std::vector<std::string> &args);
 void cd(std::vector<std::string> &args, const char *home);
-void exec(std::string &cmd);
+void exec(std::string &cmd, char *home);
 
 int main() {
     // 不同步 iostream 和 cstdio 的 buffer
@@ -128,7 +128,7 @@ int main() {
                         dup2(pipefd[i][WRITE_END], STDOUT_FILENO);
                     }
 
-                    exec(cmds[i]);
+                    exec(cmds[i], home);
                 }
                 if (i == 0) { // 第一个进程关闭原本的标准输出
                     close(pipefd[i][WRITE_END]);
@@ -150,12 +150,13 @@ int main() {
                 std::cout << "fork failed" << std::endl;
             } else if (pid == 0) {
                 // 这里只有子进程才会进入
-                exec(cmds[0]);
+                exec(cmds[0], home);
             }
             // 这里只有父进程（原进程）才会进入
             int ret = wait(nullptr);
             if (ret < 0) {
-                std::cout << "wait failed";
+                std::cout << "wait failed" << std::endl;
+                exit(255);
             }
         }
     }
@@ -208,13 +209,23 @@ void format(std::string &line) {
 }
 
 void extend(std::vector<std::string> &args, char *home) {
-    for (auto i = 0; i < args.size(); i++) {
+    for (std::size_t i = 0; i < args.size(); i++) {
         if (args[i].substr(0, 1) == "$") { // 替换环境变量
             size_t pos = args[i].find_first_of('/');
             if (pos == std::string::npos) {
-                args[i].replace(0, args[i].length(), getenv(&(args[i].substr(1, args[i].length() - 1)[0])));
+                char *param = getenv(&(args[i].substr(1, args[i].length() - 1)[0]));
+                if (param == nullptr) {
+                    args[i].replace(0, args[i].length(), " ");
+                } else {
+                    args[i].replace(0, args[i].length(), param);
+                }
             } else {
-                args[i].replace(0, pos, getenv(&(args[i].substr(1, pos - 1)[0])));
+                char *param = getenv(getenv(&(args[i].substr(1, pos - 1)[0])));
+                if (param == nullptr) {
+                    args[i].replace(0, pos, " ");
+                } else {
+                    args[i].replace(0, pos, param);
+                }
             }
         } else if (args[i].substr(0, 2) == "~/" || args[i] == "~") { // 替换 ~
             args[i].replace(0, 1, std::string(home));
@@ -265,11 +276,23 @@ void cd(std::vector<std::string> &args, const char *home) {
     return;
 }
 
-void exec(std::string &cmd) {
+void exec(std::string &cmd, char *home) {
     format(cmd);
+
+    if (cmd.find("<") != std::string::npos) {
+        printf("input redirect\n");
+    }
+
+    if (cmd.find(">>") != std::string::npos) {
+        printf("append redirect\n");
+    } else if (cmd.find(">") != std::string::npos) {
+        printf("output redirect\n");
+    }
+
     std::vector<std::string> args = split(cmd, " ");
+    extend(args, home);
     char *arg_ptrs[args.size() + 1];
-    for (auto i = 0; i < args.size(); i++) {
+    for (std::size_t i = 0; i < args.size(); i++) {
         arg_ptrs[i] = &args[i][0];
     }
     // exec p 系列的 argv 需要以 nullptr 结尾
