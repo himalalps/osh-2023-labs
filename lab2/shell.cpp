@@ -94,16 +94,10 @@ int main() {
             continue;
         }
 
-        // // std::vector<std::string> 转 char **
-        // char *arg_ptrs[args.size() + 1];
-
         // 根据管道分割命令
         std::vector<std::string> cmds = split(cmd, "|");
         // 管道数量
         int pipe_num = cmds.size() - 1;
-
-        // 预处理
-        // preprocess(poses, args, arg_ptrs, pipe_num, home);
 
         // 处理外部命令
         if (pipe_num > 0) {
@@ -335,6 +329,10 @@ void redirect_parse(std::string &cmd, const std::size_t &pos, std::string &filen
         rpos = cmd.length();
     }
     filename = &(cmd.substr(pos + len, rpos - pos - len)[0]);
-    cmd.replace(pos - 1, rpos - pos + 1, ""); // 保证前面的命令后无单独空格
+    if (pos) {
+        cmd.replace(pos - 1, rpos - pos + 1, ""); // 保证前面的命令后无单独空格
+    } else {
+        cmd.replace(pos, rpos - pos + 1, ""); // 当重定向符在开头时也可以正确处理
+    }
     return;
 }
