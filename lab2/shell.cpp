@@ -304,7 +304,7 @@ void exec(std::string &cmd, char *home) {
         dup2(fd, STDOUT_FILENO);
     } else if ((pos = cmd.find("> ")) != std::string::npos) {
         redirect_parse(cmd, pos, filename, 2);
-        int fd = open(&filename[0], O_WRONLY | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
+        int fd = open(&filename[0], O_TRUNC | O_WRONLY | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
         if (fd == -1) {
             std::cout << "redirect failed" << std::endl;
             exit(255);
