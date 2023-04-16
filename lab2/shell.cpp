@@ -14,6 +14,8 @@
 #include <sys/wait.h>
 // 用于获取用户
 #include <pwd.h>
+// 重定向中open
+#include <fcntl.h>
 
 #define READ_END 0
 #define WRITE_END 1
@@ -25,6 +27,7 @@ void extend(std::vector<std::string> &args, char *home);
 void pwd(const std::vector<std::string> &args);
 void cd(std::vector<std::string> &args, const char *home);
 void exec(std::string &cmd, char *home);
+void redirect_parse(std::string &cmd, const std::size_t &pos, std::string &filename, int len);
 
 int main() {
     // 不同步 iostream 和 cstdio 的 buffer
@@ -279,14 +282,34 @@ void cd(std::vector<std::string> &args, const char *home) {
 void exec(std::string &cmd, char *home) {
     format(cmd);
 
-    if (cmd.find("<") != std::string::npos) {
-        printf("input redirect\n");
+    std::size_t pos;
+    std::string filename;
+    if ((pos = cmd.find("< ")) != std::string::npos) {
+        redirect_parse(cmd, pos, filename, 2);
+        int fd = open(&filename[0], O_RDONLY);
+        if (fd == -1) {
+            std::cout << "redirect failed" << std::endl;
+            exit(255);
+        }
+        dup2(fd, STDIN_FILENO);
     }
 
-    if (cmd.find(">>") != std::string::npos) {
-        printf("append redirect\n");
-    } else if (cmd.find(">") != std::string::npos) {
-        printf("output redirect\n");
+    if ((pos = cmd.find(">> ")) != std::string::npos) {
+        redirect_parse(cmd, pos, filename, 3);
+        int fd = open(&filename[0], O_APPEND | O_WRONLY | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
+        if (fd == -1) {
+            std::cout << "redirect failed" << std::endl;
+            exit(255);
+        }
+        dup2(fd, STDOUT_FILENO);
+    } else if ((pos = cmd.find("> ")) != std::string::npos) {
+        redirect_parse(cmd, pos, filename, 2);
+        int fd = open(&filename[0], O_WRONLY | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
+        if (fd == -1) {
+            std::cout << "redirect failed" << std::endl;
+            exit(255);
+        }
+        dup2(fd, STDOUT_FILENO);
     }
 
     std::vector<std::string> args = split(cmd, " ");
@@ -304,4 +327,14 @@ void exec(std::string &cmd, char *home) {
 
     // 所以这里直接报错
     exit(255);
+}
+
+void redirect_parse(std::string &cmd, const std::size_t &pos, std::string &filename, int len) {
+    std::size_t rpos = cmd.find(" ", pos + len);
+    if (rpos == std::string::npos) {
+        rpos = cmd.length();
+    }
+    filename = &(cmd.substr(pos + len, rpos - pos - len)[0]);
+    cmd.replace(pos - 1, rpos - pos + 1, ""); // 保证前面的命令后无单独空格
+    return;
 }
