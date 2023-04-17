@@ -136,6 +136,12 @@ int main() {
                     // 进程组分离
                     setpgid(getpid(), pipegrpid);
 
+                    if (cmds[pipe_num].back() == '&') {
+                        std::cout << "hang: " << getpid() << std::endl;
+                        daemon(1, 1);
+                        cmds[pipe_num].pop_back();
+                    }
+                    
                     exec(cmds[i], home);
                 }
 
@@ -179,6 +185,12 @@ int main() {
 
                 // 子进程与父进程分离
                 setpgrp();
+
+                if (cmds[0].back() == '&') {
+                    std::cout << "hang: " << getpid() << std::endl;
+                    daemon(1, 1);
+                    cmds[0].pop_back();
+                }
 
                 exec(cmds[0], home);
             }
