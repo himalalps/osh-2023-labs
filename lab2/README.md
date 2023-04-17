@@ -31,6 +31,8 @@ int chdir(const char *path);
 3. 使用的`flag`参数列举如下
    - `O_RDONLY`只读模式打开，`O_CREAT`如果没有则创建，`O_WRONLY`只写模式打开，`O_APPEND`在原文件末尾添加，`O_TRUNC`覆盖原文件.
    - `S_IRUSR`，`S_IRGRP`，`S_IROTH`分别是所有者、用户组和其他用户拥有可读权限，`S_IWUSR`，`S_IWGRP`，`S_IWOTH`分别是所有者、用户组和其他用户拥有可写权限.
+  
+4. 实现了数字文件描述符重定向和文本重定向，文本重定向使用了`mkstemp`和`unlink`函数，分别用于临时文件打开和之后的自动删除.
 
 ## 拓展功能
 
