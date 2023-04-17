@@ -155,9 +155,13 @@ int main() {
             signal(SIGTTOU, SIG_IGN);
 
             // 等待所有子进程结束
-            while (wait(nullptr) > 0)
+            int status;
+            while (waitpid(-1, &status, 0) > 0)
                 ;
             tcsetpgrp(0, getpgrp());
+            if (!WIFEXITED(status)) {
+                std::cout << std::endl;
+            }
         } else {
             // 不存在管道
             pid_t pid = fork();
@@ -181,12 +185,16 @@ int main() {
             tcsetpgrp(0, pid);
             signal(SIGTTOU, SIG_IGN);
 
-            int ret = wait(nullptr);
+            int status;
+            int ret = waitpid(-1, &status, 0);
             if (ret < 0) {
                 std::cout << "wait failed" << std::endl;
                 exit(255);
             }
             tcsetpgrp(0, getpgrp());
+            if (!WIFEXITED(status)) {
+                std::cout << std::endl;
+            }
         }
     }
 }
