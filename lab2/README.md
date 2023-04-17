@@ -34,6 +34,14 @@ int chdir(const char *path);
   
 4. 实现了数字文件描述符重定向和文本重定向，文本重定向使用了`mkstemp`和`unlink`函数，分别用于临时文件打开和之后的自动删除.
 
+## 信号处理
+
+1. 使用`setpgrp`和`setpgid`函数将子进程组分离，用于之后的信号处理.
+
+2. 使用`tcsetpgrp`函数选择前台进程组，为了防止shell被挂起，需要用`signal`函数忽略`SIGTTOU`信号.
+
+3. 处理`CTRL-C`带来的`SIGINT`信号，使用自定义的`signal`函数，输出空行以及开头的提示符.
+
 ## 拓展功能
 
 1. 支持`$`扩展，获取环境变量，使用了`getenv`函数.

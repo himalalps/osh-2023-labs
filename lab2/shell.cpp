@@ -1,23 +1,14 @@
-// IO
-#include <iostream>
-// std::string
-#include <string>
-// std::vector
-#include <vector>
-// std::string 转 int
-#include <sstream>
-// PATH_MAX 等常量
-#include <climits>
-// POSIX API
-#include <unistd.h>
-// wait
-#include <sys/wait.h>
-// 用于获取用户
-#include <pwd.h>
-// 重定向中open
-#include <fcntl.h>
-// 文本重定向临时文件
-#include <stdlib.h>
+#include <climits>    // PATH_MAX 等常量
+#include <fcntl.h>    // 重定向中open
+#include <iostream>   // IO
+#include <pwd.h>      // 用于获取用户
+#include <signal.h>   // 处理信号
+#include <sstream>    // std::string 转 int
+#include <stdlib.h>   // 文本重定向临时文件
+#include <string>     // std::string
+#include <sys/wait.h> // wait
+#include <unistd.h>   // POSIX API
+#include <vector>     // std::vector
 
 #define READ_END 0
 #define WRITE_END 1
@@ -32,6 +23,7 @@ void cd(std::vector<std::string> &args, const char *home);
 void exec(std::string &cmd, char *home);
 void redirect(std::string &cmd, const std::string &redir, const int &originfd, const int &flag, const mode_t &mode = 0);
 void redirect_parse(std::string &cmd, const std::size_t &pos, std::string &filename, int &redirfd, int len);
+void handler(int signum);
 
 int main() {
     // 不同步 iostream 和 cstdio 的 buffer
@@ -46,6 +38,7 @@ int main() {
         home = getpwuid(getuid())->pw_dir;
     }
 
+    signal(SIGINT, handler);
     while (true) {
         // 打印提示符
         std::cout << "# ";
@@ -107,6 +100,7 @@ int main() {
         if (pipe_num > 0) {
             // 存在管道
             int pipefd[pipe_num][2];
+            pid_t pipegrpid; // 管道进程组ID
             for (int i = 0; i < pipe_num; i++) {
                 if (pipe(pipefd[i]) == -1) {
                     std::cout << "pipe failed" << std::endl;
@@ -120,29 +114,50 @@ int main() {
                     exit(255);
                 } else if (cpid == 0) {
                     // 输出重定向
-                    if (i == 0) { // 第一个子进程输入来自标准输入
+                    if (i == 0) {
+                        // 管道进程组ID为第一个子进程ID
+                        pipegrpid = getpid();
+                        // 第一个子进程输入来自标准输入
                         dup2(pipefd[i][WRITE_END], STDOUT_FILENO);
-                    } else if (i == pipe_num) { // 最后一个子进程输出到标准输出
+                    } else if (i == pipe_num) {
+                        // 最后一个子进程输出到标准输出
                         dup2(pipefd[i - 1][READ_END], STDIN_FILENO);
-                    } else { // 其余进程输入输出都是管道
+                    } else {
+                        // 其余进程输入输出都是管道
                         dup2(pipefd[i - 1][READ_END], STDIN_FILENO);
                         dup2(pipefd[i][WRITE_END], STDOUT_FILENO);
                     }
+                    // 进程组分离
+                    setpgid(getpid(), pipegrpid);
 
                     exec(cmds[i], home);
                 }
-                if (i == 0) { // 第一个进程关闭原本的标准输出
+
+                if (i == 0) {
+                    // 第一个子进程ID为管道进程组ID
+                    pipegrpid = cpid;
+                    // 第一个进程关闭原本的标准输出
                     close(pipefd[i][WRITE_END]);
-                } else if (i == pipe_num) { // 最后一共进程关闭原本的标准输入
+                } else if (i == pipe_num) {
+                    // 最后一共进程关闭原本的标准输入
                     close(pipefd[i - 1][READ_END]);
-                } else { // 其余进程关闭原本的标准输入和输出
+                } else {
+                    // 其余进程关闭原本的标准输入和输出
                     close(pipefd[i - 1][READ_END]);
                     close(pipefd[i][WRITE_END]);
                 }
+
+                // 进程组分离
+                setpgid(cpid, pipegrpid);
             }
+            // 将管道进程组调到前台
+            tcsetpgrp(0, pipegrpid);
+            signal(SIGTTOU, SIG_IGN);
+
             // 等待所有子进程结束
             while (wait(nullptr) > 0)
                 ;
+            tcsetpgrp(0, getpgrp());
         } else {
             // 不存在管道
             pid_t pid = fork();
@@ -151,14 +166,27 @@ int main() {
                 std::cout << "fork failed" << std::endl;
             } else if (pid == 0) {
                 // 这里只有子进程才会进入
+
+                // 子进程与父进程分离
+                setpgrp();
+
                 exec(cmds[0], home);
             }
             // 这里只有父进程（原进程）才会进入
+
+            // 防止先走父进程，子进程与父进程分离
+            setpgid(pid, pid);
+
+            // 将子进程调到前台
+            tcsetpgrp(0, pid);
+            signal(SIGTTOU, SIG_IGN);
+
             int ret = wait(nullptr);
             if (ret < 0) {
                 std::cout << "wait failed" << std::endl;
                 exit(255);
             }
+            tcsetpgrp(0, getpgrp());
         }
     }
 }
@@ -181,7 +209,8 @@ std::vector<std::string> split(std::string s, const std::string &delimiter) {
 // 去除line前后空格
 void trim(std::string &line) {
     int lPos = line.find_first_not_of(' ');
-    if (lPos == -1) { // 整行均为' '
+    if (lPos == -1) {
+        // 整行均为' '
         line.replace(0, line.length(), "");
         return;
     }
@@ -211,7 +240,8 @@ void format(std::string &line) {
 
 void extend(std::vector<std::string> &args, char *home) {
     for (std::size_t i = 0; i < args.size(); i++) {
-        if (args[i].substr(0, 1) == "$") { // 替换环境变量
+        if (args[i].substr(0, 1) == "$") {
+            // 替换环境变量
             size_t pos = args[i].find_first_of('/');
             if (pos == std::string::npos) {
                 char *param = getenv(&(args[i].substr(1, args[i].length() - 1)[0]));
@@ -228,9 +258,11 @@ void extend(std::vector<std::string> &args, char *home) {
                     args[i].replace(0, pos, param);
                 }
             }
-        } else if (args[i].substr(0, 2) == "~/" || args[i] == "~") { // 替换 ~
+        } else if (args[i].substr(0, 2) == "~/" || args[i] == "~") {
+            // 替换 ~
             args[i].replace(0, 1, std::string(home));
-        } else if (args[i].substr(0, 1) == "~") { // ~拓展
+        } else if (args[i].substr(0, 1) == "~") {
+            // ~拓展
             size_t pos = args[i].find_first_of('/');
             if (pos == std::string::npos) {
                 args[i].replace(0, args[i].length(), getpwnam(&(args[i].substr(1, args[i].length() - 1))[0])->pw_dir);
@@ -358,5 +390,12 @@ void redirect_parse(std::string &cmd, const std::size_t &pos, std::string &filen
         redirfd = atoi(&(cmd.substr(lpos, pos - lpos)[0]));
     }
     cmd.replace(lpos, rpos - lpos, ""); // 保证前面的命令后无单独空格
+    return;
+}
+
+void handler(int signum) {
+    std::cout << std::endl
+              << "# ";
+    std::cout.flush();
     return;
 }
