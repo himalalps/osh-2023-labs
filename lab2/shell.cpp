@@ -38,7 +38,13 @@ int main() {
         home = getpwuid(getuid())->pw_dir;
     }
 
-    signal(SIGINT, handler);
+    struct sigaction ignore, handle;
+    ignore.sa_flags = 0;
+    ignore.sa_handler = SIG_IGN;
+    handle.sa_flags = 0;
+    handle.sa_handler = handler;
+
+    sigaction(SIGINT, &handle, nullptr);
     while (true) {
         // 打印提示符
         std::cout << "# ";
@@ -152,7 +158,7 @@ int main() {
             }
             // 将管道进程组调到前台
             tcsetpgrp(0, pipegrpid);
-            signal(SIGTTOU, SIG_IGN);
+            sigaction(SIGTTOU, &ignore, nullptr);
 
             // 等待所有子进程结束
             int status;
@@ -183,7 +189,7 @@ int main() {
 
             // 将子进程调到前台
             tcsetpgrp(0, pid);
-            signal(SIGTTOU, SIG_IGN);
+            sigaction(SIGTTOU, &ignore, nullptr);
 
             int status;
             int ret = waitpid(-1, &status, 0);
