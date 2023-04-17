@@ -16,6 +16,8 @@
 #include <pwd.h>
 // 重定向中open
 #include <fcntl.h>
+// 文本重定向临时文件
+#include <stdlib.h>
 
 #define READ_END 0
 #define WRITE_END 1
@@ -277,21 +279,27 @@ void cd(std::vector<std::string> &args, const char *home) {
 void exec(std::string &cmd, char *home) {
     format(cmd);
 
-    // std::size_t pos;
-    // std::string filename;
-    // int redirfd;
-    // while ((pos = cmd.find("<<< ")) != std::string::npos) {
-    //     redirfd = STDIN_FILENO;
-    //     redirect_parse(cmd, pos, filename, redirfd, 4);
-    //     int fd = open("temp", O_RDWR | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
-    //     if (fd == -1) {
-    //         std::cout << "redirect failed" << std::endl;
-    //         exit(255);
-    //     }
-    //     filename.append("\n");
-    //     write(fd, &filename[0], filename.size());
-    //     dup2(fd, redirfd);
-    // }
+    std::size_t pos;
+    std::string filename;
+    int redirfd;
+    while ((pos = cmd.find("<<< ")) != std::string::npos) {
+        redirfd = STDIN_FILENO;
+        redirect_parse(cmd, pos, filename, redirfd, 4);
+        filename.append("\n");
+        // 临时文件
+        char temp_file[] = "temp_XXXXXX";
+        int fd = mkstemp(temp_file);
+        if (fd == -1) {
+            std::cout << "redirect failed" << std::endl;
+            exit(255);
+        }
+        // 删除文件入口，之后文件用完会自动删除
+        unlink(temp_file);
+        write(fd, &filename[0], filename.size());
+        // 回到临时文件开头，用于之后读入文件内容
+        lseek(fd, 0, SEEK_SET);
+        dup2(fd, redirfd);
+    }
 
     redirect(cmd, "< ", STDIN_FILENO, O_RDONLY);
     redirect(cmd, ">> ", STDOUT_FILENO, O_APPEND | O_WRONLY | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
