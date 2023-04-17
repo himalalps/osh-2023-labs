@@ -21,6 +21,7 @@
 
 #define READ_END 0
 #define WRITE_END 1
+#define HERE_STR -1
 
 std::vector<std::string> split(std::string s, const std::string &delimiter);
 void trim(std::string &line);
@@ -279,28 +280,7 @@ void cd(std::vector<std::string> &args, const char *home) {
 void exec(std::string &cmd, char *home) {
     format(cmd);
 
-    std::size_t pos;
-    std::string filename;
-    int redirfd;
-    while ((pos = cmd.find("<<< ")) != std::string::npos) {
-        redirfd = STDIN_FILENO;
-        redirect_parse(cmd, pos, filename, redirfd, 4);
-        filename.append("\n");
-        // 临时文件
-        char temp_file[] = "temp_XXXXXX";
-        int fd = mkstemp(temp_file);
-        if (fd == -1) {
-            std::cout << "redirect failed" << std::endl;
-            exit(255);
-        }
-        // 删除文件入口，之后文件用完会自动删除
-        unlink(temp_file);
-        write(fd, &filename[0], filename.size());
-        // 回到临时文件开头，用于之后读入文件内容
-        lseek(fd, 0, SEEK_SET);
-        dup2(fd, redirfd);
-    }
-
+    redirect(cmd, "<<< ", STDIN_FILENO, HERE_STR);
     redirect(cmd, "< ", STDIN_FILENO, O_RDONLY);
     redirect(cmd, ">> ", STDOUT_FILENO, O_APPEND | O_WRONLY | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
     redirect(cmd, "> ", STDOUT_FILENO, O_TRUNC | O_WRONLY | O_CREAT, S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR | S_IWGRP | S_IWOTH);
@@ -328,15 +308,33 @@ void redirect(std::string &cmd, const std::string &redir, const int &originfd, c
     int redirfd;
 
     while ((pos = cmd.find(redir)) != std::string::npos) {
+        int fd;
         redirfd = originfd;
 
         redirect_parse(cmd, pos, filename, redirfd, redir.length());
 
-        int fd = open(&filename[0], flag, mode);
-        if (fd == -1) {
-            std::cout << "redirect failed" << std::endl;
-            exit(255);
+        if (flag < 0) {
+            // 文本重定向
+            filename.append("\n");
+            // 临时文件
+            char temp_file[] = "temp_XXXXXX";
+            if ((fd = mkstemp(temp_file)) == -1) {
+                std::cout << "redirect failed" << std::endl;
+                exit(255);
+            }
+            // 删除文件入口，之后文件用完会自动删除
+            unlink(temp_file);
+            write(fd, &filename[0], filename.size());
+            // 回到临时文件开头，用于之后读入文件内容
+            lseek(fd, 0, SEEK_SET);
+        } else {
+            // 文件重定向
+            if ((fd = open(&filename[0], flag, mode)) == -1) {
+                std::cout << "redirect failed" << std::endl;
+                exit(255);
+            }
         }
+
         dup2(fd, redirfd);
     }
     return;
