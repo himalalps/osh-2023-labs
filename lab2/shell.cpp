@@ -70,6 +70,12 @@ int main() {
         // 读入一行。std::getline 结果不包含换行符。
         std::getline(std::cin, cmd);
 
+        if (std::cin.eof()) {
+            std::cout << std::endl
+                      << "exit" << std::endl;
+            return 0;
+        }
+
         // 命令格式化
         format(cmd);
 
