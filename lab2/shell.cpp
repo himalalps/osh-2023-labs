@@ -14,11 +14,22 @@
 #define WRITE_END 1
 #define HERE_STR -1
 
+class job {
+public:
+    int id;
+    pid_t pid;
+    std::string cmd;
+
+    job(int id, pid_t pid, std::string cmd) : id(id), pid(pid), cmd(cmd) {}
+};
+
 std::vector<std::string> split(std::string s, const std::string &delimiter);
 void trim(std::string &line);
 void format(std::string &line);
 void extend(std::vector<std::string> &args, char *home);
 void pwd(const std::vector<std::string> &args);
+void wait(const std::vector<std::string> &args, std::vector<job> &bg_jobs);
+void kill_bg(std::vector<job> &bg_jobs);
 void cd(std::vector<std::string> &args, const char *home);
 void exec(std::string &cmd, char *home);
 void redirect(std::string &cmd, const std::string &redir, const int &originfd, const int &flag, const mode_t &mode = 0);
@@ -32,17 +43,22 @@ int main() {
     // 用来存储读入的一行命令
     std::string cmd;
 
+    // 用来存储后台进程
+    std::vector<job> bg_jobs;
+
     // 用于替换路径中的'~'
     char *home = getenv("HOME");
     if (home == nullptr) {
         home = getpwuid(getuid())->pw_dir;
     }
 
-    struct sigaction ignore, handle;
+    struct sigaction ignore, handle, dfl;
     ignore.sa_flags = 0;
     ignore.sa_handler = SIG_IGN;
     handle.sa_flags = 0;
     handle.sa_handler = handler;
+    dfl.sa_flags = 0;
+    dfl.sa_handler = SIG_DFL;
 
     sigaction(SIGINT, &handle, nullptr);
     while (true) {
@@ -89,6 +105,11 @@ int main() {
             continue;
         }
 
+        if (args[0] == "wait") {
+            wait(args, bg_jobs);
+            continue;
+        }
+
         extend(args, home);
 
         // 处理cd命令
@@ -97,6 +118,12 @@ int main() {
             continue;
         }
 
+        // 处理&符号
+        bool is_bg = cmd.back() == '&';
+        if (is_bg) {
+            cmd.pop_back();
+            trim(cmd);
+        }
         // 根据管道分割命令
         std::vector<std::string> cmds = split(cmd, "|");
         // 管道数量
@@ -106,6 +133,7 @@ int main() {
         if (pipe_num > 0) {
             // 存在管道
             int pipefd[pipe_num][2];
+            pid_t pipeid[pipe_num + 1];
             pid_t pipegrpid; // 管道进程组ID
             for (int i = 0; i < pipe_num; i++) {
                 if (pipe(pipefd[i]) == -1) {
@@ -136,12 +164,15 @@ int main() {
                     // 进程组分离
                     setpgid(getpid(), pipegrpid);
 
-                    if (cmds[pipe_num].back() == '&') {
-                        std::cout << "hang: " << getpid() << std::endl;
-                        daemon(1, 1);
-                        cmds[pipe_num].pop_back();
+                    if (is_bg) {
+                        sigaction(SIGINT, &ignore, nullptr);
+                        sigaction(SIGTTOU, &ignore, nullptr);
+                        tcsetpgrp(0, getppid());
+                    } else {
+                        sigaction(SIGINT, &dfl, nullptr);
+                        sigaction(SIGTTOU, &dfl, nullptr);
                     }
-                    
+
                     exec(cmds[i], home);
                 }
 
@@ -158,21 +189,35 @@ int main() {
                     close(pipefd[i - 1][READ_END]);
                     close(pipefd[i][WRITE_END]);
                 }
+                pipeid[i] = cpid;
 
                 // 进程组分离
                 setpgid(cpid, pipegrpid);
             }
-            // 将管道进程组调到前台
-            tcsetpgrp(0, pipegrpid);
-            sigaction(SIGTTOU, &ignore, nullptr);
 
-            // 等待所有子进程结束
-            int status;
-            while (waitpid(-1, &status, 0) > 0)
-                ;
-            tcsetpgrp(0, getpgrp());
-            if (!WIFEXITED(status)) {
-                std::cout << std::endl;
+            if (is_bg) {
+                tcsetpgrp(0, getpgrp());
+                bg_jobs.push_back(job(bg_jobs.size() + 1, pipegrpid, cmd));
+            } else {
+                // 将管道进程组调到前台
+                tcsetpgrp(0, pipegrpid);
+                sigaction(SIGTTOU, &ignore, nullptr);
+
+                // 等待所有子进程结束
+                int status;
+                for (int i = 0; i <= pipe_num; i++) {
+                    int ret = waitpid(pipeid[i], &status, 0);
+                    if (ret < 0) {
+                        std::cout << "waitpid failed" << std::endl;
+                        exit(255);
+                    }
+                }
+
+                tcsetpgrp(0, getpgrp());
+
+                if (!WIFEXITED(status)) {
+                    std::cout << std::endl;
+                }
             }
         } else {
             // 不存在管道
@@ -185,35 +230,49 @@ int main() {
 
                 // 子进程与父进程分离
                 setpgrp();
+                // std::cout << getppid() << std::endl;
 
-                if (cmds[0].back() == '&') {
-                    std::cout << "hang: " << getpid() << std::endl;
-                    daemon(1, 1);
-                    cmds[0].pop_back();
+                if (is_bg) {
+                    // std::cout << "bg" << std::endl;
+                    sigaction(SIGINT, &ignore, nullptr);
+                    sigaction(SIGTTOU, &ignore, nullptr);
+                    tcsetpgrp(0, getppid());
+                } else {
+                    // std::cout << "fg" << std::endl;
+                    sigaction(SIGINT, &dfl, nullptr);
+                    sigaction(SIGTTOU, &dfl, nullptr);
                 }
 
                 exec(cmds[0], home);
             }
             // 这里只有父进程（原进程）才会进入
 
-            // 防止先走父进程，子进程与父进程分离
-            setpgid(pid, pid);
+            if (is_bg) {
+                tcsetpgrp(0, getpgrp());
+                std::cout << "[" << bg_jobs.size() + 1 << "] " << pid << std::endl;
+                bg_jobs.push_back(job(bg_jobs.size() + 1, pid, cmd));
+            } else {
+                // 防止先走父进程，子进程与父进程分离
+                setpgid(pid, pid);
 
-            // 将子进程调到前台
-            tcsetpgrp(0, pid);
-            sigaction(SIGTTOU, &ignore, nullptr);
+                // 将子进程调到前台
+                tcsetpgrp(0, pid);
+                sigaction(SIGTTOU, &ignore, nullptr);
 
-            int status;
-            int ret = waitpid(-1, &status, 0);
-            if (ret < 0) {
-                std::cout << "wait failed" << std::endl;
-                exit(255);
-            }
-            tcsetpgrp(0, getpgrp());
-            if (!WIFEXITED(status)) {
-                std::cout << std::endl;
+                int status;
+                int ret = waitpid(pid, &status, 0);
+                if (ret < 0) {
+                    std::cout << "wait failed" << std::endl;
+                    exit(255);
+                }
+                tcsetpgrp(0, getpgrp());
+                if (!WIFEXITED(status)) {
+                    std::cout << std::endl;
+                }
             }
         }
+        // 处理后台进程
+        kill_bg(bg_jobs);
     }
 }
 
@@ -315,6 +374,41 @@ void pwd(const std::vector<std::string> &args) {
     }
     std::cout << buf << std::endl;
     delete[] buf;
+    return;
+}
+
+// wait 命令
+void wait(const std::vector<std::string> &args, std::vector<job> &bg_jobs) {
+    if (args.size() > 1) {
+        std::cout << "wait: invalid argument number" << std::endl;
+        return;
+    }
+    if (!bg_jobs.empty()) {
+        for (auto &i : bg_jobs) {
+            int status;
+            waitpid(i.pid, &status, 0);
+            std::cout << "[" << i.id << "]"
+                      << " Done    " << i.cmd << std::endl;
+        }
+        bg_jobs.clear();
+    }
+    return;
+}
+
+// 处理后台进程
+void kill_bg(std::vector<job> &bg_jobs) {
+    if (!bg_jobs.empty()) {
+        int size = bg_jobs.size();
+        for (int i = 0; i < size; i++) {
+            if (waitpid(bg_jobs[i].pid, nullptr, WNOHANG)) {
+                std::cout << "[" << bg_jobs[i].id << "]"
+                          << " Done    " << bg_jobs[i].cmd << std::endl;
+                bg_jobs.erase(bg_jobs.begin() + i);
+                i--;
+                size--;
+            }
+        }
+    }
     return;
 }
 
