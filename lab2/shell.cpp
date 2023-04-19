@@ -17,16 +17,17 @@
 class job {
 public:
     int id;
-    pid_t pid;
+    std::vector<pid_t> pids;
     std::string cmd;
 
-    job(int id, pid_t pid, std::string cmd) : id(id), pid(pid), cmd(cmd) {}
+    job(int id, std::string cmd) : id(id), cmd(cmd) {}
 };
 
 std::vector<std::string> split(std::string s, const std::string &delimiter);
 void trim(std::string &line);
 void format(std::string &line);
 void extend(std::vector<std::string> &args, char *home);
+void printcwd(void);
 void pwd(const std::vector<std::string> &args);
 void wait(const std::vector<std::string> &args, std::vector<job> &bg_jobs);
 void kill_bg(std::vector<job> &bg_jobs);
@@ -62,8 +63,9 @@ int main() {
 
     sigaction(SIGINT, &handle, nullptr);
     while (true) {
+        printcwd();
         // 打印提示符
-        std::cout << "# ";
+        std::cout << " # ";
 
         // 读入一行。std::getline 结果不包含换行符。
         std::getline(std::cin, cmd);
@@ -133,8 +135,9 @@ int main() {
         if (pipe_num > 0) {
             // 存在管道
             int pipefd[pipe_num][2];
-            pid_t pipeid[pipe_num + 1];
-            pid_t pipegrpid; // 管道进程组ID
+            // 管道进程组ID
+            pid_t pipegrpid;
+            job jobs = job(bg_jobs.size() + 1, cmd);
             for (int i = 0; i < pipe_num; i++) {
                 if (pipe(pipefd[i]) == -1) {
                     std::cout << "pipe failed" << std::endl;
@@ -189,7 +192,8 @@ int main() {
                     close(pipefd[i - 1][READ_END]);
                     close(pipefd[i][WRITE_END]);
                 }
-                pipeid[i] = cpid;
+
+                jobs.pids.push_back(cpid);
 
                 // 进程组分离
                 setpgid(cpid, pipegrpid);
@@ -197,7 +201,8 @@ int main() {
 
             if (is_bg) {
                 tcsetpgrp(0, getpgrp());
-                bg_jobs.push_back(job(bg_jobs.size() + 1, pipegrpid, cmd));
+                std::cout << "[" << bg_jobs.size() + 1 << "] " << pipegrpid << std::endl;
+                bg_jobs.push_back(jobs);
             } else {
                 // 将管道进程组调到前台
                 tcsetpgrp(0, pipegrpid);
@@ -206,7 +211,7 @@ int main() {
                 // 等待所有子进程结束
                 int status;
                 for (int i = 0; i <= pipe_num; i++) {
-                    int ret = waitpid(pipeid[i], &status, 0);
+                    int ret = waitpid(jobs.pids[i], &status, 0);
                     if (ret < 0) {
                         std::cout << "waitpid failed" << std::endl;
                         exit(255);
@@ -230,15 +235,12 @@ int main() {
 
                 // 子进程与父进程分离
                 setpgrp();
-                // std::cout << getppid() << std::endl;
 
                 if (is_bg) {
-                    // std::cout << "bg" << std::endl;
                     sigaction(SIGINT, &ignore, nullptr);
                     sigaction(SIGTTOU, &ignore, nullptr);
                     tcsetpgrp(0, getppid());
                 } else {
-                    // std::cout << "fg" << std::endl;
                     sigaction(SIGINT, &dfl, nullptr);
                     sigaction(SIGTTOU, &dfl, nullptr);
                 }
@@ -248,9 +250,12 @@ int main() {
             // 这里只有父进程（原进程）才会进入
 
             if (is_bg) {
+                // 后台运行
                 tcsetpgrp(0, getpgrp());
                 std::cout << "[" << bg_jobs.size() + 1 << "] " << pid << std::endl;
-                bg_jobs.push_back(job(bg_jobs.size() + 1, pid, cmd));
+                job bg_job = job(bg_jobs.size() + 1, cmd);
+                bg_job.pids.push_back(pid);
+                bg_jobs.push_back(bg_job);
             } else {
                 // 防止先走父进程，子进程与父进程分离
                 setpgid(pid, pid);
@@ -323,6 +328,7 @@ void format(std::string &line) {
     return;
 }
 
+// 符号扩展
 void extend(std::vector<std::string> &args, char *home) {
     for (std::size_t i = 0; i < args.size(); i++) {
         if (args[i].substr(0, 1) == "$") {
@@ -359,12 +365,8 @@ void extend(std::vector<std::string> &args, char *home) {
     return;
 }
 
-// pwd 命令
-void pwd(const std::vector<std::string> &args) {
-    if (args.size() > 1) {
-        std::cout << "pwd: invalid argument number" << std::endl;
-        return;
-    }
+// 输出当前路径
+void printcwd(void) {
     char *buf = new char[PATH_MAX + 1];
     int size = PATH_MAX;
     while (getcwd(buf, size) == nullptr) {
@@ -372,8 +374,19 @@ void pwd(const std::vector<std::string> &args) {
         size += PATH_MAX;
         buf = new char[size];
     }
-    std::cout << buf << std::endl;
+    std::cout << buf;
     delete[] buf;
+    return;
+}
+
+// pwd 命令
+void pwd(const std::vector<std::string> &args) {
+    if (args.size() > 1) {
+        std::cout << "pwd: invalid argument number" << std::endl;
+        return;
+    }
+    printcwd();
+    std::cout << std::endl;
     return;
 }
 
@@ -385,8 +398,9 @@ void wait(const std::vector<std::string> &args, std::vector<job> &bg_jobs) {
     }
     if (!bg_jobs.empty()) {
         for (auto &i : bg_jobs) {
-            int status;
-            waitpid(i.pid, &status, 0);
+            for (size_t j = 0; j < i.pids.size(); j++) {
+                waitpid(i.pids[j], nullptr, 0);
+            }
             std::cout << "[" << i.id << "]"
                       << " Done    " << i.cmd << std::endl;
         }
@@ -398,14 +412,19 @@ void wait(const std::vector<std::string> &args, std::vector<job> &bg_jobs) {
 // 处理后台进程
 void kill_bg(std::vector<job> &bg_jobs) {
     if (!bg_jobs.empty()) {
-        int size = bg_jobs.size();
-        for (int i = 0; i < size; i++) {
-            if (waitpid(bg_jobs[i].pid, nullptr, WNOHANG)) {
+        for (size_t i = 0; i < bg_jobs.size(); i++) {
+            for (size_t j = 0; j < bg_jobs[i].pids.size(); j++) {
+                // 如果为僵尸进程，则删去
+                if (waitpid(bg_jobs[i].pids[j], nullptr, WNOHANG)) {
+                    bg_jobs[i].pids.erase(bg_jobs[i].pids.begin() + j);
+                    j--;
+                }
+            }
+            if (bg_jobs[i].pids.size() == 0) {
                 std::cout << "[" << bg_jobs[i].id << "]"
                           << " Done    " << bg_jobs[i].cmd << std::endl;
                 bg_jobs.erase(bg_jobs.begin() + i);
                 i--;
-                size--;
             }
         }
     }
@@ -429,6 +448,7 @@ void cd(std::vector<std::string> &args, const char *home) {
     return;
 }
 
+// 执行外部命令
 void exec(std::string &cmd, char *home) {
     format(cmd);
 
@@ -454,6 +474,7 @@ void exec(std::string &cmd, char *home) {
     exit(255);
 }
 
+// 重定向
 void redirect(std::string &cmd, const std::string &redir, const int &originfd, const int &flag, const mode_t &mode) {
     std::size_t pos;
     std::string filename;
@@ -492,8 +513,8 @@ void redirect(std::string &cmd, const std::string &redir, const int &originfd, c
     return;
 }
 
+// 切分重定向
 void redirect_parse(std::string &cmd, const std::size_t &pos, std::string &filename, int &redirfd, int len) {
-    // 切分重定向符号
     std::size_t rpos = cmd.find(" ", pos + len);
     std::size_t lpos = cmd.find_last_of(" ", pos);
     // 右侧无空格，则已到结尾
@@ -513,9 +534,11 @@ void redirect_parse(std::string &cmd, const std::size_t &pos, std::string &filen
     return;
 }
 
+// 信号处理
 void handler(int signum) {
-    std::cout << std::endl
-              << "# ";
+    std::cout << std::endl;
+    printcwd();
+    std::cout << " # ";
     std::cout.flush();
     return;
 }
