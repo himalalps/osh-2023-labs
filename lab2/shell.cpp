@@ -191,7 +191,7 @@ int main() {
                     // 第一个进程关闭原本的标准输出
                     close(pipefd[i][WRITE_END]);
                 } else if (i == pipe_num) {
-                    // 最后一共进程关闭原本的标准输入
+                    // 最后一个进程关闭原本的标准输入
                     close(pipefd[i - 1][READ_END]);
                 } else {
                     // 其余进程关闭原本的标准输入和输出
