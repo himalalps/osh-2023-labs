@@ -30,7 +30,9 @@ pub fn handle_connection(mut stream: TcpStream) {
         }
     };
 
-    println!("Request: {:#?}", http_request);
+    if cfg!(debug_assertions) {
+        println!("Request: {:#?}", http_request);
+    }
 
     let parsed_request = parse_request(&http_request);
 
@@ -64,6 +66,10 @@ fn parse_request(request: &str) -> Response {
             };
         }
     };
+
+    if cfg!(debug_assertions) {
+        println!("Path: {:#?}", path);
+    }
 
     let path = Path::new(&path);
     if path.is_dir() {
