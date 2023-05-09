@@ -1,6 +1,3 @@
-#[cfg(test)]
-mod test;
-
 use server_thread::*;
 use std::net::TcpListener;
 

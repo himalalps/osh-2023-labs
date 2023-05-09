@@ -3,11 +3,23 @@ use std::{
     fs,
     io::{prelude::*, BufReader},
     net::TcpStream,
+    path::Path,
 };
 
 const STATUS_OK: &str = "200 OK";
 const STATUS_NOT_FOUND: &str = "404 NOT FOUND";
 const STATUS_SERVER_ERROR: &str = "500 Internal Server Error";
+
+enum RequestStatus {
+    Ok,
+    NotFound,
+    ServerError,
+}
+
+struct Response {
+    status: RequestStatus,
+    content: String,
+}
 
 pub fn handle_connection(mut stream: TcpStream) {
     let buf_reader = BufReader::new(&mut stream);
@@ -15,31 +27,84 @@ pub fn handle_connection(mut stream: TcpStream) {
 
     println!("Request: {:#?}", http_request);
 
-    let response = match parse_request(http_request.as_str()) {
-        Some(query) => {
-            let meta = fs::metadata(&query[..]).unwrap();
-            if meta.is_file() {
-                let contents = fs::read_to_string(query).unwrap();
-                let length = contents.len();
-                format!(
-                    "HTTP/1.0 {}\r\nContent-Length: {}\r\n\r\n{}",
-                    STATUS_OK, length, contents
-                )
-            } else {
-                format!("HTTP/1.0 {}\r\nContent-Length: 0\r\n\r\n", STATUS_NOT_FOUND)
-            }
+    let parsed_request = parse_request(&http_request);
+
+    let response = match parsed_request.status {
+        RequestStatus::Ok => format!(
+            "HTTP/1.0 {}\r\nContent-Length: {}\r\n\r\n{}",
+            STATUS_OK,
+            parsed_request.content.len(),
+            parsed_request.content
+        ),
+        RequestStatus::NotFound => {
+            format!("HTTP/1.0 {}\r\nContent-Length: 0\r\n\r\n", STATUS_NOT_FOUND)
         }
-        None => format!(
+        RequestStatus::ServerError => format!(
             "HTTP/1.0 {}\r\nContent-Length: 0\r\n\r\n",
             STATUS_SERVER_ERROR
         ),
     };
+
     stream.write_all(response.as_bytes()).unwrap();
 }
 
-pub fn parse_request(request: &str) -> Option<String> {
-    let re = Regex::new(r"GET /(.*) HTTP/1.[01]").unwrap();
+fn parse_request(request: &str) -> Response {
+    let parsed_path = parse_path(request);
+    let path = match parsed_path {
+        Some(path) => path,
+        None => {
+            return Response {
+                status: RequestStatus::ServerError,
+                content: "".to_string(),
+            };
+        }
+    };
+
+    let path = Path::new(&path);
+    if path.is_dir() {
+        return Response {
+            status: RequestStatus::ServerError,
+            content: "".to_string(),
+        };
+    }
+
+    match fs::read_to_string(path) {
+        Ok(content) => Response {
+            status: RequestStatus::Ok,
+            content,
+        },
+        Err(_) => Response {
+            status: RequestStatus::NotFound,
+            content: "".to_string(),
+        },
+    }
+}
+
+fn parse_path(request: &str) -> Option<String> {
+    let re = Regex::new(r"GET /(.*[^/]) HTTP/1.[01]").unwrap();
     let caps = re.captures(request)?;
     let query = caps.get(1)?.as_str();
     Some(query.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse() {
+        assert_eq!(parse_path("GET / HTTP/1.0"), Some("".to_string()));
+        assert_eq!(
+            parse_path("GET /dir/index0.html HTTP/1.0"),
+            Some("dir/index0.html".to_string())
+        );
+        assert_eq!(parse_path("GET /.a/ HTTP/1.0"), Some(".a/".to_string()));
+        assert_eq!(parse_path("GET /b/ HTTP/1.0"), Some("b/".to_string()));
+        assert_eq!(
+            parse_path("GET /ind.html/ HTTP/1.0"),
+            Some("ind.html/".to_string())
+        );
+        assert_eq!(parse_path("POST /index.html HTTP/1.0"), None);
+        assert_eq!(parse_path("GET /index.html HTTP/1"), None);
+    }
 }
