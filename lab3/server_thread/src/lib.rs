@@ -23,7 +23,12 @@ struct Response {
 
 pub fn handle_connection(mut stream: TcpStream) {
     let buf_reader = BufReader::new(&mut stream);
-    let http_request = buf_reader.lines().next().unwrap().unwrap();
+    let http_request = match buf_reader.lines().next() {
+        Some(line) => line.unwrap(),
+        None => {
+            return;
+        }
+    };
 
     println!("Request: {:#?}", http_request);
 
@@ -81,7 +86,7 @@ fn parse_request(request: &str) -> Response {
 }
 
 fn parse_path(request: &str) -> Option<String> {
-    let re = Regex::new(r"GET /(.*[^/]) HTTP/1.[01]").unwrap();
+    let re = Regex::new(r"GET /(.*[^/]) HTTP/[12].[01]").unwrap();
     let caps = re.captures(request)?;
     let query = caps.get(1)?.as_str();
     Some(query.to_string())
