@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 regex = "1.8.1"
+signal-hook = "0.3.15"
