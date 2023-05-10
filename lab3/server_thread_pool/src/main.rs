@@ -10,12 +10,14 @@ const BIND_IP: &str = "0.0.0.0:8000";
 fn main() {
     let listener =
         TcpListener::bind(BIND_IP).expect(format!("Failed to bind to {}.", BIND_IP).as_str());
+    // 设置非阻塞
     listener
         .set_nonblocking(true)
         .expect("Cannot set non-blocking");
 
     let pool = ThreadPool::new(32);
     let mut signals = Signals::new(&[SIGINT]).unwrap();
+    // 用于传送信号
     let (tx, rx) = mpsc::channel();
 
     thread::spawn(move || {
@@ -34,7 +36,9 @@ fn main() {
                     handle_connection(tcpstream);
                 });
             }
+            // 阻塞，说明在等待
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                // 尝试接收结束信号
                 match rx.try_recv() {
                     Ok(_) => break,
                     Err(_) => continue,
