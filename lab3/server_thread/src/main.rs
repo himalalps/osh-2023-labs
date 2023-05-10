@@ -11,7 +11,7 @@ fn main() {
         let stream = match stream {
             Ok(tcpstream) => tcpstream,
             Err(e) => {
-                println!("Error: {}", e);
+                eprintln!("Error: {}", e);
                 continue;
             }
         };
