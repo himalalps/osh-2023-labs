@@ -3,7 +3,7 @@ pub mod pool;
 use pool::ThreadPool;
 use server::*;
 use signal_hook::{consts::SIGINT, iterator::Signals};
-use std::{io, net::TcpListener, sync::mpsc, thread};
+use std::{io, net::TcpListener, sync::mpsc, thread, time::Duration};
 
 const BIND_IP: &str = "0.0.0.0:8000";
 
@@ -41,7 +41,10 @@ fn main() {
                 // 尝试接收结束信号
                 match rx.try_recv() {
                     Ok(_) => break,
-                    Err(_) => continue,
+                    Err(_) => {
+                        // 防止轮询过快对系统占用较高
+                        thread::sleep(Duration::from_micros(1));
+                    }
                 };
             }
             Err(e) => {

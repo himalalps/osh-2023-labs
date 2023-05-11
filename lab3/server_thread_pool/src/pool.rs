@@ -44,7 +44,7 @@ impl Drop for ThreadPool {
     fn drop(&mut self) {
         drop(self.sender.take());
 
-        for worker in &mut self.workers {
+        for worker in self.workers.iter_mut() {
             if cfg!(debug_assertions) {
                 println!("Shutting down worker {}", worker.id);
             }
