@@ -1,23 +1,23 @@
 use server::*;
-use std::{net::TcpListener, thread};
+use tokio::net::TcpListener;
 
 const BIND_IP: &str = "0.0.0.0:8000";
 
-fn main() {
-    let listener =
-        TcpListener::bind(BIND_IP).expect(format!("Failed to bind to {}.", BIND_IP).as_str());
+#[tokio::main]
+async fn main() {
+    let listener = TcpListener::bind(BIND_IP)
+        .await
+        .expect(format!("Failed to bind to {}.", BIND_IP).as_str());
 
-    for stream in listener.incoming() {
-        let stream = match stream {
-            Ok(tcpstream) => tcpstream,
+    loop {
+        let stream = match listener.accept().await {
+            Ok((tcpstream, _)) => tcpstream,
             Err(e) => {
-                eprintln!("Error: {}", e);
+                eprintln!("Err: {}", e);
                 continue;
             }
         };
 
-        thread::spawn(|| {
-            handle_connection(stream);
-        });
+        handle_connection(stream).await;
     }
 }

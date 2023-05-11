@@ -1,9 +1,9 @@
 use regex::Regex;
-use std::{
+use std::path::Path;
+use tokio::{
     fs,
-    io::{prelude::*, BufReader},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpStream,
-    path::Path,
 };
 
 const STATUS_OK: &str = "200 OK";
@@ -21,20 +21,16 @@ struct Response {
     content: String,
 }
 
-pub fn handle_connection(mut stream: TcpStream) {
-    let buf_reader = BufReader::new(&mut stream);
-    let http_request = match buf_reader.lines().next() {
-        Some(line) => line.unwrap(),
-        None => {
-            return;
-        }
-    };
+pub async fn handle_connection(mut stream: TcpStream) {
+    let mut buf_reader = BufReader::new(&mut stream);
+    let mut http_request = String::new();
+    buf_reader.read_line(&mut http_request).await.unwrap();
 
     if cfg!(debug_assertions) {
         println!("Request: {:#?}", http_request);
     }
 
-    let parsed_request = parse_request(&http_request);
+    let parsed_request = parse_request(&http_request).await;
 
     let response = match parsed_request.status {
         RequestStatus::Ok => format!(
@@ -52,10 +48,10 @@ pub fn handle_connection(mut stream: TcpStream) {
         ),
     };
 
-    stream.write_all(response.as_bytes()).unwrap();
+    stream.write_all(response.as_bytes()).await.unwrap();
 }
 
-fn parse_request(request: &str) -> Response {
+async fn parse_request(request: &str) -> Response {
     let parsed_path = parse_path(request);
     let path = match parsed_path {
         Some(path) => path,
@@ -79,7 +75,7 @@ fn parse_request(request: &str) -> Response {
         };
     }
 
-    match fs::read_to_string(path) {
+    match fs::read_to_string(path).await {
         Ok(content) => Response {
             status: RequestStatus::Ok,
             content,
