@@ -15,3 +15,8 @@
 位于`./server_thread_pool/`目录下。
 
 相比多线程版本，加入了`pool.rs`内的`ThreadPool`相关内容，首先在`main.rs`中创建32个线程的线程池`pool`，之后对于多线程中的`thread::spawn()`都使用`pool.execute()`替代，这样就将任务提交给了线程池。为了方便线程池停机，使用`signal_hook`接收`SIGINT`信号则跳出循环，编译器会自动调用`ThreadPool`的`drop`函数。
+
+### 异步版本
+
+位于`./server_async/`目录下。
+

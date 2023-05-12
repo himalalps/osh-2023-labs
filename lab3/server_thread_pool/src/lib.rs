@@ -18,7 +18,7 @@ enum RequestStatus {
 
 struct Response {
     status: RequestStatus,
-    content: String,
+    content: Vec<u8>,
 }
 
 pub fn handle_connection(mut stream: TcpStream) {
@@ -34,14 +34,13 @@ pub fn handle_connection(mut stream: TcpStream) {
         println!("Request: {:#?}", http_request);
     }
 
-    let parsed_request = parse_request(&http_request);
+    let mut parsed_request = parse_request(&http_request);
 
     let response = match parsed_request.status {
         RequestStatus::Ok => format!(
-            "HTTP/1.0 {}\r\nContent-Length: {}\r\n\r\n{}",
+            "HTTP/1.0 {}\r\nContent-Length: {}\r\n\r\n",
             STATUS_OK,
             parsed_request.content.len(),
-            parsed_request.content
         ),
         RequestStatus::NotFound => {
             format!("HTTP/1.0 {}\r\nContent-Length: 0\r\n\r\n", STATUS_NOT_FOUND)
@@ -51,8 +50,10 @@ pub fn handle_connection(mut stream: TcpStream) {
             STATUS_SERVER_ERROR
         ),
     };
+    let mut response = response.into_bytes();
+    response.append(&mut parsed_request.content);
 
-    stream.write_all(response.as_bytes()).unwrap();
+    stream.write_all(&response).unwrap();
 }
 
 fn parse_request(request: &str) -> Response {
@@ -62,7 +63,7 @@ fn parse_request(request: &str) -> Response {
         None => {
             return Response {
                 status: RequestStatus::ServerError,
-                content: "".to_string(),
+                content: "".as_bytes().to_vec(),
             };
         }
     };
@@ -75,18 +76,18 @@ fn parse_request(request: &str) -> Response {
     if path.is_dir() {
         return Response {
             status: RequestStatus::ServerError,
-            content: "".to_string(),
+            content: "".as_bytes().to_vec(),
         };
     }
 
-    match fs::read_to_string(path) {
+    match fs::read(path) {
         Ok(content) => Response {
             status: RequestStatus::Ok,
             content,
         },
         Err(_) => Response {
             status: RequestStatus::NotFound,
-            content: "".to_string(),
+            content: "".as_bytes().to_vec(),
         },
     }
 }

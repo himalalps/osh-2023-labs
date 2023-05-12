@@ -18,7 +18,7 @@ enum RequestStatus {
 
 struct Response {
     status: RequestStatus,
-    content: String,
+    content: Vec<u8>,
 }
 
 pub async fn handle_connection(mut stream: TcpStream) {
@@ -30,14 +30,13 @@ pub async fn handle_connection(mut stream: TcpStream) {
         println!("Request: {:#?}", http_request);
     }
 
-    let parsed_request = parse_request(&http_request).await;
+    let mut parsed_request = parse_request(&http_request).await;
 
     let response = match parsed_request.status {
         RequestStatus::Ok => format!(
-            "HTTP/1.0 {}\r\nContent-Length: {}\r\n\r\n{}",
+            "HTTP/1.0 {}\r\nContent-Length: {}\r\n\r\n",
             STATUS_OK,
             parsed_request.content.len(),
-            parsed_request.content
         ),
         RequestStatus::NotFound => {
             format!("HTTP/1.0 {}\r\nContent-Length: 0\r\n\r\n", STATUS_NOT_FOUND)
@@ -48,7 +47,10 @@ pub async fn handle_connection(mut stream: TcpStream) {
         ),
     };
 
-    stream.write_all(response.as_bytes()).await.unwrap();
+    let mut response = response.into_bytes();
+    response.append(&mut parsed_request.content);
+
+    stream.write_all(&response).await.unwrap();
 }
 
 async fn parse_request(request: &str) -> Response {
@@ -58,7 +60,7 @@ async fn parse_request(request: &str) -> Response {
         None => {
             return Response {
                 status: RequestStatus::ServerError,
-                content: "".to_string(),
+                content: "".as_bytes().to_vec(),
             };
         }
     };
@@ -71,18 +73,18 @@ async fn parse_request(request: &str) -> Response {
     if path.is_dir() {
         return Response {
             status: RequestStatus::ServerError,
-            content: "".to_string(),
+            content: "".as_bytes().to_vec(),
         };
     }
 
-    match fs::read_to_string(path).await {
+    match fs::read(path).await {
         Ok(content) => Response {
             status: RequestStatus::Ok,
             content,
         },
         Err(_) => Response {
             status: RequestStatus::NotFound,
-            content: "".to_string(),
+            content: "".as_bytes().to_vec(),
         },
     }
 }
