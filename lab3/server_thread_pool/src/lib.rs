@@ -53,7 +53,12 @@ pub fn handle_connection(mut stream: TcpStream) {
     let mut response = response.into_bytes();
     response.append(&mut parsed_request.content);
 
-    stream.write_all(&response).unwrap();
+    match stream.write_all(&response) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("Err: {}", e);
+        }
+    };
 }
 
 fn parse_request(request: &str) -> Response {
