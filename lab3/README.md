@@ -2,7 +2,7 @@
 
 ## 编译说明
 
-在以下说明的对应目录下直接使用`cargo build --release`即可在对应目录的`target/release/`文件夹下找到可执行文件`server`。
+在以下说明的对应目录下直接使用`cargo build --release`即可在对应目录的`target/release/`文件夹下编译出可执行文件`server`。可以直接在对应目录下使用`cargo run --release`直接运行。
 
 ### 多线程版本
 
@@ -32,3 +32,102 @@
 
 `TcpListener`需要转为非阻塞的`accept()`而非之前的`incoming()`。`handle_connection`也变为异步版本。其中涉及IO的部分都加入了`.await`这些也是可能会较耗时的部分。
 
+## 测试结果和分析
+
+1. 首先选择一个正常大小的网页，此处直接将实验文档网页的源代码复制下来，使用`siege`命令测试如下：
+
+```shell
+# server_thread
+$ siege -c 50 -r 500 http://127.0.0.1:8000/index.html
+Transactions:                  25000 hits
+Availability:                 100.00 %
+Elapsed time:                   6.90 secs
+Data transferred:            1755.02 MB
+Response time:                  0.01 secs
+Transaction rate:            3623.19 trans/sec
+Throughput:                   254.35 MB/sec
+Concurrency:                   48.68
+Successful transactions:       25000
+Failed transactions:               0
+Longest transaction:            0.12
+Shortest transaction:           0.00
+# server_thread_pool
+$ siege -c 50 -r 500 http://127.0.0.1:8000/index.html
+Transactions:                  25000 hits
+Availability:                 100.00 %
+Elapsed time:                   2.52 secs
+Data transferred:            1756.22 MB
+Response time:                  0.00 secs
+Transaction rate:            9920.63 trans/sec
+Throughput:                   696.91 MB/sec
+Concurrency:                   48.14
+Successful transactions:       25000
+Failed transactions:               0
+Longest transaction:            0.12
+Shortest transaction:           0.00
+# server_async
+$ siege -c 50 -r 500 http://127.0.0.1:8000/index.html
+Transactions:                  25000 hits
+Availability:                 100.00 %
+Elapsed time:                   7.83 secs
+Data transferred:            1755.02 MB
+Response time:                  0.02 secs
+Transaction rate:            3192.85 trans/sec
+Throughput:                   224.14 MB/sec
+Concurrency:                   49.71
+Successful transactions:       25000
+Failed transactions:               0
+Longest transaction:            0.07
+Shortest transaction:           0.01
+```
+
+2. 之后测试一个较大的文件，此处选择4MB大小的pdf文件，得到结果如下
+
+```shell
+# server_thread
+$ siege -c 50 -r 500 http://127.0.0.1:8000/test.pdf
+Transactions:                  25000 hits
+Availability:                 100.00 %
+Elapsed time:                  88.86 secs
+Data transferred:          119189.52 MB
+Response time:                  0.17 secs
+Transaction rate:             281.34 trans/sec
+Throughput:                  1341.32 MB/sec
+Concurrency:                   48.74
+Successful transactions:       25000
+Failed transactions:               0
+Longest transaction:            1.87
+Shortest transaction:           0.01
+# server_thread_pool
+$ siege -c 50 -r 500 http://127.0.0.1:8000/test.pdf
+Transactions:                  25000 hits
+Availability:                 100.00 %
+Elapsed time:                  71.85 secs
+Data transferred:          119189.52 MB
+Response time:                  0.14 secs
+Transaction rate:             347.95 trans/sec
+Throughput:                  1658.87 MB/sec
+Concurrency:                   49.39
+Successful transactions:       25000
+Failed transactions:               0
+Longest transaction:            0.84
+Shortest transaction:           0.01
+# server_async
+$ siege -c 50 -r 500 http://127.0.0.1:8000/test.pdf
+Transactions:                  25000 hits
+Availability:                 100.00 %
+Elapsed time:                  88.21 secs
+Data transferred:          119189.52 MB
+Response time:                  0.18 secs
+Transaction rate:             283.41 trans/sec
+Throughput:                  1351.20 MB/sec
+Concurrency:                   49.92
+Successful transactions:       25000
+Failed transactions:               0
+Longest transaction:            0.33
+Shortest transaction:           0.01
+```
+
+3. 测试可以看出线程池相比起对每个请求都新建一个新线程确实性能会更好一些，而异步相比起多线程的性能并没有太大的性能提升。毕竟异步实际上是在并发而非并行，只是切换的速度比较快。
+
+4. 而如果将`-c`参数再提高，因为不能永远无限制创建新线程，多线程版本可能会出现问题，而线程池和异步版本则不会。
